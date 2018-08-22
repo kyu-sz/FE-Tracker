@@ -1,7 +1,9 @@
 import sys
+
 import cv2
+
+from fent.tracker import Tracker
 from utils.frame_reader import SourceType, FrameReader
-from feta.tracker import Tracker
 
 
 def parse_arguments():

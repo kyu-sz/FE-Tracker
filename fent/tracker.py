@@ -1,10 +1,11 @@
-import torch
-import torch.nn as nn
-import numpy as np
-import cv2
 import queue
 
-from feta.filter_evolving_net import FilterEvolvingNet
+import cv2
+import numpy as np
+import torch
+import torch.nn as nn
+
+from fent.filter_evolving_net import FilterEvolvingNet
 
 
 def randomly_rotate_img_at_target(frame, bbox, angle_range=30):

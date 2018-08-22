@@ -1,9 +1,6 @@
 from collections import OrderedDict
-from itertools import chain
 
-import torch
 import torch.nn as nn
-import torchvision.models as models
 
 
 class FilterEvolvingNet(nn.Module):

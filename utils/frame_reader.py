@@ -1,5 +1,9 @@
 from enum import Enum
+
 import cv2
+
+from utils.trax import server
+from utils.trax.server import ServerOptions
 
 
 class SourceType(Enum):
@@ -9,9 +13,12 @@ class SourceType(Enum):
 
 
 class FrameReader:
-    def __init__(self, src: str, src_type: SourceType):
+    def __init__(self, src: str, src_type: SourceType, trax_options: ServerOptions = None):
         self.src = src
         self.src_type = src_type
+
+        if self.src_type is SourceType.TRAX:
+            self.trax_server = server.Server(trax_options)
 
     def __iter__(self):
         if self.src_type is SourceType.VIDEO_FILE:
@@ -23,5 +30,7 @@ class FrameReader:
             with open(self.src) as f:
                 for line in f:
                     yield cv2.imread(line)
+        elif self.src_type is SourceType.TRAX:
+            yield self.trax_server.wait()
         else:
             raise NotImplementedError
