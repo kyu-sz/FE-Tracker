@@ -2,8 +2,8 @@ from enum import Enum
 
 import cv2
 
-from utils.trax import server
-from utils.trax.server import ServerOptions
+from utils.vot_integration.trax import ServerOptions
+from utils.vot_integration.trax import server
 
 
 class SourceType(Enum):
