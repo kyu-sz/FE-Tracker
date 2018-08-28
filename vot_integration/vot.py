@@ -11,6 +11,7 @@
 
 import collections
 import copy
+from typing import Optional
 
 try:
     from .trax import server
@@ -141,7 +142,7 @@ class VOT(object):
             self._result.append(region)
             self._frame += 1
 
-    def frame(self):
+    def frame(self) -> Optional[str]:
         """
         Get a frame (image path) from client
 

@@ -25,10 +25,10 @@ class StaticFeaturesExtractor:
 
     class VGGExtractor(FeatureExtractor):
         def __init__(self, num_layers):
-            self._net = models.vgg16(pretrained=True, batch_norm=True).features[:num_layers]
+            self._net = models.vgg16_bn(pretrained=True).features[:num_layers]
 
         def extract_features(self, x) -> torch.tensor:
-            return self._net(x)
+            return self._net(x).detach()
 
     def __init__(self, feature_names: list, output_size: int):
         self._extractors = []
@@ -45,5 +45,5 @@ class StaticFeaturesExtractor:
                 raise NotImplementedError
 
     def extract_features(self, x) -> torch.tensor:
-        return torch.cat([resize(extractor.extract_features(x), (self._output_size, self._output_size))
-                          for extractor in self._extractors])
+        return torch.tensor([resize(extractor.extract_features(x), (self._output_size, self._output_size))
+                             for extractor in self._extractors])

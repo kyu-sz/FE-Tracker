@@ -10,9 +10,8 @@ import os
 import socket
 import sys
 
-import utils.vot_integration.trax as trax
-import utils.vot_integration.trax.image
-import utils.vot_integration.trax.region
+import vot_integration.trax.image
+import vot_integration.trax.region
 from . import TraXError, MessageType
 from .message import MessageParser
 
@@ -44,10 +43,10 @@ class ServerOptions(object):
 
         # other formats not implemented yet
         for r in region:
-            assert (r in [utils.vot_integration.trax.region.RECTANGLE, utils.vot_integration.trax.region.POLYGON])
+            assert (r in [vot_integration.trax.region.RECTANGLE, vot_integration.trax.region.POLYGON])
         for i in image:
-            assert (i in [utils.vot_integration.trax.image.PATH, utils.vot_integration.trax.image.URL,
-                          utils.vot_integration.trax.image.MEMORY, utils.vot_integration.trax.image.BUFFER])
+            assert (i in [vot_integration.trax.image.PATH, vot_integration.trax.image.URL,
+                          vot_integration.trax.image.MEMORY, vot_integration.trax.image.BUFFER])
 
         if name:
             self.name = name
@@ -115,7 +114,7 @@ class Server(MessageParser):
         self._write_message(MessageType.HELLO, [], properties)
         return
 
-    def wait(self) -> utils.vot_integration.trax.server.Request:
+    def wait(self) -> vot_integration.trax.server.Request:
         """ Wait for client message request. Recognize it and parse them when received .
 
             :returns: A request structure
@@ -133,14 +132,14 @@ class Server(MessageParser):
         elif message.type == MessageType.INITIALIZE and len(message.arguments) == 2:
             log.info('Received initialize message.')
 
-            image = utils.vot_integration.trax.image.parse(message.arguments[0])
-            region = utils.vot_integration.trax.region.parse(message.arguments[1])
+            image = vot_integration.trax.image.parse(message.arguments[0])
+            region = vot_integration.trax.region.parse(message.arguments[1])
             return Request(message.type, image, region, message.parameters)
 
         elif message.type == MessageType.FRAME and len(message.arguments) == 1:
             log.info('Received frame message.')
 
-            image = utils.vot_integration.trax.image.parse(message.arguments[0])
+            image = vot_integration.trax.image.parse(message.arguments[0])
             return Request(message.type, image, None, message.parameters)
 
         else:
@@ -153,7 +152,7 @@ class Server(MessageParser):
             :param trax.region.Region region: Resulting region object.
             :param dict properties: Optional arguments as a dictionary.
         """
-        assert (isinstance(region, utils.vot_integration.trax.region.Region))
+        assert (isinstance(region, vot_integration.trax.region.Region))
         self._write_message(MessageType.STATUS, [region], properties)
 
     def __enter__(self):

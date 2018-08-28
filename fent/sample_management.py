@@ -27,8 +27,8 @@ class SampleManager:
         for idx, p in enumerate(pred):
             self._component_sample_idx[p].append(idx)
 
-    def add_sample(self, features: tensor, bbox: list):
-        self._samples.append((features, bbox, 0))
+    def add_sample(self, features: tensor, rel_bbox: list):
+        self._samples.append((features, rel_bbox, 0))
         if self._component_sample_idx:
             self._component_sample_idx[self._mixture.predict(features)].append(len(self._samples) - 1)
 
