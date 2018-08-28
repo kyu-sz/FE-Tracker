@@ -1,4 +1,7 @@
-# Pycharm Files
+# Mac system files
+.DS_Store
+
+# Pycharm files
 .idea
 
 # Byte-compiled / optimized / DLL files

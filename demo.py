@@ -11,10 +11,12 @@ def parse_arguments():
 
     parser = argparse.ArgumentParser(description='Filter evolution tracker')
     parser.add_argument('--img_seq_list',
+                        default='sequences/bolt1/img_list.txt',
                         help='input a video which is sliced into a sequence of images by a list of these images')
     parser.add_argument('--video_path',
                         help='input a video by specifying its path')
-    parser.add_argument('label_file',
+    parser.add_argument('groundtruth',
+                        default='sequences/bolt1/groundtruth.txt',
                         help='a label file which contains the bounding boxes of the target in each frame')
 
     return parser.parse_args()
@@ -40,7 +42,7 @@ if __name__ == '__main__':
         print('Require video file or image list as input for demo!')
         sys.exit(-1)
 
-    label_reader = LabelReader(args.label_file)
+    label_reader = LabelReader(args.groundtruth)
     bundled_reader = zip(frame_reader, label_reader)
     tracker = None
 
