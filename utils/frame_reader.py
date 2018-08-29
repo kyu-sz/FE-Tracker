@@ -2,7 +2,7 @@ from enum import Enum
 
 import cv2
 
-from vot_integration.trax import ServerOptions, server
+from vot_integration.trax.server import ServerOptions
 
 
 class SourceType(Enum):
@@ -17,6 +17,7 @@ class FrameReader:
         self.src_type = src_type
 
         if self.src_type is SourceType.TRAX:
+            from vot_integration.trax import server
             self.trax_server = server.Server(trax_options)
 
     def __iter__(self):

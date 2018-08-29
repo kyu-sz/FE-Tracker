@@ -114,7 +114,7 @@ class Server(MessageParser):
         self._write_message(MessageType.HELLO, [], properties)
         return
 
-    def wait(self) -> vot_integration.trax.server.Request:
+    def wait(self) -> Request:
         """ Wait for client message request. Recognize it and parse them when received .
 
             :returns: A request structure
