@@ -11,6 +11,10 @@ from fent.sample_management import SampleManager
 from fent.static_features import StaticFeaturesExtractor
 
 
+def r2i(x) -> int:
+    return int(round(x))
+
+
 class Tracker:
     @staticmethod
     def _choose_closest_anchor(bbox: list):
@@ -30,7 +34,7 @@ class Tracker:
         bbox_longer_side = max(bbox[2], bbox[3])
         frame_shorter_side = min(frame.shape[0], frame.shape[1])
 
-        search_area_size = min(frame_shorter_side, bbox_longer_side * config.SEARCH_AREA_SIZE_RATIO)
+        search_area_size = min(frame_shorter_side, r2i(bbox_longer_side * config.SEARCH_AREA_SIZE_RATIO))
 
         # compute the vectors of the 4 corners of the original bounding box relative to the centre
         right_upper = (-bbox[2] / 2, bbox[3] / 2)
@@ -43,28 +47,28 @@ class Tracker:
 
         # a patch larger than the search area is needed for rotation
         rot_patch_size = min(frame_shorter_side, search_area_size * 2)
-        rot_patch_x = min(max(0, bbox_centre[0] - rot_patch_size), frame.shape[1] - rot_patch_size)
-        rot_patch_y = min(max(0, bbox_centre[1] - rot_patch_size), frame.shape[0] - rot_patch_size)
-        rot_patch_centre = (rot_patch_x + rot_patch_size / 2, rot_patch_y + rot_patch_size / 2)
+        rot_patch_x = min(max(0, r2i(bbox_centre[0] - rot_patch_size / 2)), frame.shape[1] - rot_patch_size / 2)
+        rot_patch_y = min(max(0, r2i(bbox_centre[1] - rot_patch_size / 2)), frame.shape[0] - rot_patch_size / 2)
+        rot_patch = frame[rot_patch_y:rot_patch_y + rot_patch_size, rot_patch_x:rot_patch_x + rot_patch_size]
 
         # compute the search area's location inside the rotation patch
-        search_area_x = min(max(0, bbox_centre[0] - search_area_size), frame.shape[1] - search_area_size) - rot_patch_x
-        search_area_y = min(max(0, bbox_centre[1] - search_area_size), frame.shape[0] - search_area_size) - rot_patch_y
+        search_area_x = min(max(0, r2i(bbox_centre[0] - search_area_size / 2)),
+                            frame.shape[1] - search_area_size) - rot_patch_x
+        search_area_y = min(max(0, r2i(bbox_centre[1] - search_area_size / 2)),
+                            frame.shape[0] - search_area_size) - rot_patch_y
 
-        # compute the new bounding box's centre inside the search patch
-        new_bbox_centre = (bbox_centre[0] - rot_patch_x - search_area_x, bbox_centre[1] - rot_patch_y - search_area_y)
+        # compute the new bounding box's centre inside the patches
+        centre_in_rot_patch = (bbox_centre[0] - rot_patch_x, bbox_centre[1] - rot_patch_y)
+        centre_in_search_patch = (centre_in_rot_patch[0] - search_area_x, centre_in_rot_patch[1] - search_area_y)
 
         samples = []
         for i in range(n_samples):
             # perform random rotation and scaling
             rot_angle = np.random.uniform(-180, 180)
             scale = pow(2, np.random.uniform(-1, 1))
-            rot_mat = cv2.getRotationMatrix2D(rot_patch_centre, rot_angle, scale)
-            rotated_patch = cv2.warpAffine(frame[
-                                           rot_patch_y:rot_patch_y + rot_patch_size,
-                                           rot_patch_x:rot_patch_x + rot_patch_size],
-                                           rot_mat,
-                                           frame.shape)
+            rot_mat = cv2.getRotationMatrix2D(centre_in_rot_patch, rot_angle, scale)
+
+            rotated_patch = cv2.warpAffine(rot_patch, rot_mat, rot_patch.shape[:2])
 
             # crop the search area
             search_area_patch = rotated_patch[
@@ -81,20 +85,42 @@ class Tracker:
             rotated_left_upper = rotate_vector_by_angle(left_upper, rot_angle)
             rotated_right_lower = rotate_vector_by_angle(right_lower, rot_angle)
             rotated_left_lower = rotate_vector_by_angle(left_lower, rot_angle)
+            new_width = (max(rotated_left_lower[0],
+                             rotated_left_upper[0],
+                             rotated_right_lower[0],
+                             rotated_right_upper[0]) -
+                         min(rotated_left_lower[0],
+                             rotated_left_upper[0],
+                             rotated_right_lower[0],
+                             rotated_right_upper[0])
+                         ) * scale
+            new_height = (max(rotated_left_lower[1],
+                              rotated_left_upper[1],
+                              rotated_right_lower[1],
+                              rotated_right_upper[1]) -
+                          min(rotated_left_lower[1],
+                              rotated_left_upper[1],
+                              rotated_right_lower[1],
+                              rotated_right_upper[1])
+                          ) * scale
             new_bbox = [
-                new_bbox_centre[0] if not mirror else search_area_size - new_bbox_centre[0],
-                new_bbox_centre[1] if not mirror else search_area_size - new_bbox_centre[1],
-                max(rotated_left_lower[0], rotated_left_upper[0], rotated_right_lower[0], rotated_right_upper[0]) -
-                min(rotated_left_lower[0], rotated_left_upper[0], rotated_right_lower[0], rotated_right_upper[0]),
-                max(rotated_left_lower[1], rotated_left_upper[1], rotated_right_lower[1], rotated_right_upper[1]) -
-                min(rotated_left_lower[1], rotated_left_upper[1], rotated_right_lower[1], rotated_right_upper[1])
+                (centre_in_search_patch[0] if not mirror else search_area_size - centre_in_search_patch[0])
+                - new_width / 2,
+                (centre_in_search_patch[1] if not mirror else search_area_size - centre_in_search_patch[1])
+                - new_height / 2,
+                new_width,
+                new_height
             ]
             rel_bbox = np.array([new_bbox[0] + new_bbox[2] / 2,
                                  new_bbox[1] + new_bbox[3] / 2,
                                  new_bbox[2],
                                  new_bbox[3]]) / search_area_size
 
-            samples.append((search_area_patch, rel_bbox))
+            # cv2.imshow("display", draw_bbox(search_area_patch.copy(), new_bbox, (255, 0, 0)))
+            # cv2.waitKey()
+
+            samples.append((cv2.resize(search_area_patch, (config.IMPUT_SAMPLE_SIZE, config.IMPUT_SAMPLE_SIZE)),
+                            rel_bbox))
 
         return samples
 
@@ -160,7 +186,10 @@ class Tracker:
         if type(init_frame) is str:
             init_frame = cv2.imread(init_frame)
 
-        self._add_samples_from_frame(init_frame, init_bbox)
+        self._sample_manager.add_init_samples([
+            (self._static_features.extract_features(img), bbox)
+            for img, bbox in self.generate_random_samples(init_frame, init_bbox, config.BATCH_SIZE)
+        ])
         for i in range(config.INIT_TRAIN_ITER):
             self._train()
 

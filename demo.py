@@ -29,7 +29,7 @@ class GroundtruthReader:
     def __iter__(self):
         with open(self._label_file) as f:
             for line in f:
-                corners = [float(num_str) for num_str in line.split()]
+                corners = [float(num_str) for num_str in line.split(',')]
                 left = min(corners[::2])
                 right = max(corners[::2])
                 top = min(corners[1::2])
@@ -39,9 +39,9 @@ class GroundtruthReader:
 
 if __name__ == '__main__':
     args = parse_arguments()
-    if args.video_path:
+    if args.video_path is not None:
         frame_reader = FrameReader(args.video_path, SourceType.VIDEO_FILE)
-    elif args.img_seq_list:
+    elif args.img_seq_list is not None:
         frame_reader = FrameReader(args.img_seq_list, SourceType.IMG_LIST)
     else:
         print('Require video file or image list as input for demo!')

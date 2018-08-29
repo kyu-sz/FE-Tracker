@@ -33,7 +33,7 @@ class SampleManager:
             for i in sorted([i for i in to_del if i >= self._num_init_samples], reverse=True):
                 del self._samples[i]
 
-        self._mixture.fit(self._samples)
+        self._mixture.fit([s[0] for s in self._samples])
         pred = self._mixture.predict(self._samples)
 
         if not lock_acquired:
@@ -52,9 +52,9 @@ class SampleManager:
         else:
             self._update_gmm_sync()
 
-    def add_init_samples(self, features: list, rel_bbox: list):
-        self._num_init_samples = len(features)
-        self._samples = [(f, b, 0) for f, b in zip(features, rel_bbox)]
+    def add_init_samples(self, samples: list):
+        self._num_init_samples = len(samples)
+        self._samples = [(f, b, 0) for f, b in samples]
         self.update_gmm(async=False)
 
     def add_sample(self, features: tensor, rel_bbox: list):

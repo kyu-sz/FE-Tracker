@@ -7,6 +7,7 @@ from . import config
 
 class FilterEvolvingNet(nn.Module):
     def __init__(self):
+        super(FilterEvolvingNet, self).__init__()
         self._evolving_features = nn.Sequential(OrderedDict([
             ('conv3a', nn.Conv2d(256, 256, 3, padding=1)),
             ('norm3a', nn.BatchNorm2d(5)),
@@ -39,10 +40,10 @@ class FilterEvolvingNet(nn.Module):
             ('relu5c', nn.ReLU(inplace=True)),
             ('pool5', nn.MaxPool2d(kernel_size=2, stride=2)),
         ]))
-        self._classifier = nn.Sequential([
+        self._classifier = nn.Sequential(
             nn.Conv2d(512, len(config.ANCHORS), 7, padding=3),
             nn.Sigmoid(),
-        ])
+        )
         self._bbox_reg = nn.Conv2d(512, 4 * len(config.ANCHORS), 7, padding=3)
 
     def forward(self, x):

@@ -29,7 +29,7 @@ class FrameReader:
         elif self.src_type is SourceType.IMG_LIST:
             with open(self.src) as f:
                 for line in f:
-                    yield cv2.imread(line)
+                    yield cv2.imread(line.strip())
         elif self.src_type is SourceType.TRAX:
             yield self.trax_server.wait()
         else:
