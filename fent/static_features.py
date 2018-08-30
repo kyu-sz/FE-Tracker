@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, List
 
 import numpy as np
 import torch
@@ -8,14 +8,14 @@ from torchvision.transforms.functional import to_tensor
 
 class StaticFeaturesExtractor:
     class FeatureExtractor:
-        def extract_features(self, img: Union[list, np.ndarray]) -> torch.tensor:
+        def extract_features(self, img: Union[List[np.ndarray], np.ndarray]) -> torch.tensor:
             raise NotImplementedError
 
     class HoGExtractor(FeatureExtractor):
         def __init__(self):
             pass
 
-        def extract_features(self, img: Union[list, np.ndarray]) -> torch.tensor:
+        def extract_features(self, img: Union[List[np.ndarray], np.ndarray]) -> torch.tensor:
             # TODO: import https://github.com/joaofaro/FHOG
             raise NotImplementedError
 
@@ -23,16 +23,16 @@ class StaticFeaturesExtractor:
         def __init__(self):
             pass
 
-        def extract_features(self, img: Union[list, np.ndarray]) -> torch.tensor:
+        def extract_features(self, img: Union[List[np.ndarray], np.ndarray]) -> torch.tensor:
             raise NotImplementedError
 
     class VGGExtractor(FeatureExtractor):
         def __init__(self, num_layers):
             self._net = models.vgg16_bn(pretrained=True).features[:num_layers]
 
-        def extract_features(self, img: Union[list, np.ndarray]) -> torch.tensor:
+        def extract_features(self, img: Union[List[np.ndarray], np.ndarray]) -> torch.tensor:
             if type(img) == list:
-                return self._net(torch.stack([to_tensor(i) for i in img])).detach()[0, ...]
+                return self._net(torch.stack([to_tensor(i) for i in img])).detach()
             else:
                 return self._net(torch.stack([to_tensor(img)])).detach()[0, ...]
 

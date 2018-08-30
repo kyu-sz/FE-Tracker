@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Tuple, List
 
 import cv2
 import numpy as np
@@ -17,7 +17,7 @@ def r2i(x) -> int:
 
 class Tracker:
     @staticmethod
-    def _choose_closest_anchor(bbox: list):
+    def _choose_closest_anchor(bbox: Tuple[float, float, float, float]):
         return np.argmin([np.linalg.norm(anchor - bbox) for anchor in config.ANCHORS])
 
     @staticmethod
@@ -29,7 +29,8 @@ class Tracker:
         return h * amplitude / np.max(h)
 
     @staticmethod
-    def generate_random_samples(frame: np.ndarray, bbox: list, n_samples: int) -> list:
+    def generate_random_samples(frame: np.ndarray, bbox: Tuple[float, float, float, float], n_samples: int) \
+            -> List[Tuple[np.ndarray, Tuple[float, float, float, float]]]:
         bbox_centre = (bbox[0] + bbox[2] / 2, bbox[1] + bbox[3] / 2)
         bbox_longer_side = max(bbox[2], bbox[3])
         frame_shorter_side = min(frame.shape[0], frame.shape[1])
@@ -111,10 +112,10 @@ class Tracker:
                 new_width,
                 new_height
             ]
-            rel_bbox = np.array([new_bbox[0] + new_bbox[2] / 2,
-                                 new_bbox[1] + new_bbox[3] / 2,
-                                 new_bbox[2],
-                                 new_bbox[3]]) / search_area_size
+            rel_bbox = ((new_bbox[0] + new_bbox[2] / 2) / search_area_size,
+                        (new_bbox[1] + new_bbox[3] / 2) / search_area_size,
+                        new_bbox[2] / search_area_size,
+                        new_bbox[3] / search_area_size)
 
             # cv2.imshow("display", draw_bbox(search_area_patch.copy(), new_bbox, (255, 0, 0)))
             # cv2.waitKey()
@@ -124,13 +125,15 @@ class Tracker:
 
         return samples
 
-    def _add_samples_from_frame(self, frame: np.ndarray, bbox: list):
+    def _add_samples_from_frame(self, frame: np.ndarray, bbox: Tuple[float, float, float, float], init=False):
         # Create samples by rotating the searching area for initial training.
         # Directly store the static features of them instead of the original image patches into the sample manager.
         random_samples = self.generate_random_samples(frame, bbox, config.BATCH_SIZE)
-        for sample_patch, rel_bbox in random_samples:
-            self._sample_manager.add_sample(self._static_features.extract_features(sample_patch), rel_bbox)
-        self._sample_manager.update_gmm()
+        static_features = self._static_features_extractor.extract_features([sample[0] for sample in random_samples])
+        self._sample_manager.add_samples(list(zip(
+            [static_features[i] for i in static_features.shape[0]],
+            [sample[1] for sample in random_samples]
+        )), init=init)
 
     def _train(self):
         random_samples = self._sample_manager.pick_samples()
@@ -171,11 +174,11 @@ class Tracker:
 
     def __init__(self,
                  init_frame: Union[str, np.ndarray],
-                 init_bbox: list):
+                 init_bbox: Tuple[float, float, float, float]):
         np.random.seed(0)
 
         self._net = FilterEvolvingNet()
-        self._static_features = StaticFeaturesExtractor(config.STATIC_FEATURES, config.STATIC_FEATURE_SIZE)
+        self._static_features_extractor = StaticFeaturesExtractor(config.STATIC_FEATURES, config.STATIC_FEATURE_SIZE)
         self._sample_manager = SampleManager()
         self._criterion = nn.MSELoss()
         self._optimizer = torch.optim.SGD(self._net.parameters(),
@@ -186,10 +189,7 @@ class Tracker:
         if type(init_frame) is str:
             init_frame = cv2.imread(init_frame)
 
-        self._sample_manager.add_init_samples([
-            (self._static_features.extract_features(img), bbox)
-            for img, bbox in self.generate_random_samples(init_frame, init_bbox, config.BATCH_SIZE)
-        ])
+        self._add_samples_from_frame(init_frame, init_bbox, init=True)
         for i in range(config.INIT_TRAIN_ITER):
             self._train()
 
@@ -200,27 +200,39 @@ class Tracker:
             frame = cv2.imread(frame)
 
         # Calculate search area.
-        x_mid = self._last_bbox[0] + self._last_bbox[2] / 2
-        y_mid = self._last_bbox[1] + self._last_bbox[3] / 2
-        sa_x_min = max(x_mid - self._last_bbox[2] * config.SEARCH_AREA_SIZE_RATIO / 2, 0)
-        sa_x_max = max(x_mid + self._last_bbox[2] * config.SEARCH_AREA_SIZE_RATIO / 2, frame.shape[1])
-        sa_y_min = max(y_mid - self._last_bbox[3] * config.SEARCH_AREA_SIZE_RATIO / 2, 0)
-        sa_y_max = max(y_mid + self._last_bbox[3] * config.SEARCH_AREA_SIZE_RATIO / 2, frame.shape[0])
+        last_bbox_centre = (self._last_bbox[0] + self._last_bbox[2] / 2, self._last_bbox[1] + self._last_bbox[3] / 2)
+        last_bbox_longer_side = max(self._last_bbox[2], self._last_bbox[3])
+        frame_shorter_side = min(frame.shape[0], frame.shape[1])
+        sa_size = min(frame_shorter_side, r2i(last_bbox_longer_side * config.SEARCH_AREA_SIZE_RATIO))
+        sa_x = min(max(0, r2i(last_bbox_centre[0] - sa_size / 2)), frame.shape[1] - sa_size)
+        sa_y = min(max(0, r2i(last_bbox_centre[1] - sa_size / 2)), frame.shape[0] - sa_size)
 
         # Feed into the network.
-        resp_map, bbox_reg = self._net(frame[sa_y_min:sa_y_max, sa_x_min:sa_x_max])
+        static_features = self._static_features_extractor.extract_features(
+            cv2.resize(frame[sa_y:sa_y + sa_size, sa_x:sa_x + sa_size],
+                       (config.IMPUT_SAMPLE_SIZE, config.IMPUT_SAMPLE_SIZE)))
+        resp_map, bbox_reg = self._net(torch.stack[static_features])
 
         # Find the greatest response.
+        y = 0
+        x = 0
+        anchor = 0
+        max_resp = 0
         for c in range(resp_map.shape[1]):
-            y, x = np.unravel_index(np.argmax(resp_map[c]), resp_map.shape[2:])
+            peak_y, peak_x = np.unravel_index(np.argmax(resp_map[0, c, ...]), resp_map.shape[2:])
+            resp = resp_map[0, c, peak_y, peak_x]
+            if resp > max_resp:
+                max_resp = resp
+            y = peak_y
+            x = peak_x
+            anchor = c
 
-        # Update the latest bounding box.
-        # TODO: Use the network to predict shape of the bounding box.
-        # Currently directly use the original shape.
-        self._last_bbox[2] = min(self._last_bbox[2], x * 2, (frame.shape[1] - x) / 2)
-        self._last_bbox[3] = min(self._last_bbox[3], y * 2, (frame.shape[0] - y) / 2)
-        self._last_bbox[0] = x - self._last_bbox[2] / 2
-        self._last_bbox[1] = y - self._last_bbox[3] / 2
+        # update the latest bounding box
+        centre = ((y / resp_map.shape[2] + bbox_reg[0, anchor * 4 + 1, y, x]) * sa_size,
+                  (x / resp_map.shape[3] + bbox_reg[0, anchor * 4 + 0, y, x]) * sa_size)
+        w = sa_size * (config.ANCHORS[anchor][0] + bbox_reg[0, anchor * 4 + 2, y, x]) / config.SEARCH_AREA_SIZE_RATIO
+        h = sa_size * (config.ANCHORS[anchor][1] + bbox_reg[0, anchor * 4 + 3, y, x]) / config.SEARCH_AREA_SIZE_RATIO
+        self._last_bbox = (centre[0] - w / 2, centre[1] - h / 2, w, h)
 
         # Add new samples from this frame and fine-tune the network.
         self._add_samples_from_frame(frame, self._last_bbox)

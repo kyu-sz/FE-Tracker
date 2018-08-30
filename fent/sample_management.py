@@ -1,5 +1,6 @@
 import heapq
 import threading
+from typing import Tuple, List
 
 import numpy as np
 from sklearn.mixture.gaussian_mixture import GaussianMixture
@@ -52,14 +53,16 @@ class SampleManager:
         else:
             self._update_gmm_sync()
 
-    def add_init_samples(self, samples: list):
-        self._num_init_samples = len(samples)
-        self._samples = [(f, b, 0) for f, b in samples]
-        self.update_gmm(async=False)
-
-    def add_sample(self, features: tensor, rel_bbox: list):
-        self._samples.append((features, rel_bbox, 0))
-        self._component_sample_idx[self._mixture.predict(features)].append(len(self._samples) - 1)
+    def add_samples(self, samples: List[Tuple[tensor, Tuple[float, float, float, float]]], init=False):
+        if init:
+            self._num_init_samples = len(samples)
+            self._samples = [(f, b, 0) for f, b in samples]
+            self.update_gmm(async=False)
+        else:
+            for sample in samples:
+                self._samples.append((sample[0], sample[1], 0))
+                self._component_sample_idx[self._mixture.predict(sample[0])].append(len(self._samples) - 1)
+            self.update_gmm()
 
     def pick_samples(self) -> list:
         """
