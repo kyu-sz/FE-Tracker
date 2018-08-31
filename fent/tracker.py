@@ -65,7 +65,7 @@ class Tracker:
         samples = []
         for i in range(n_samples):
             # perform random rotation and scaling
-            rot_angle = np.random.uniform(-180, 180)
+            rot_angle = i and np.random.uniform(-180, 180)
             scale = pow(2, np.random.uniform(-1, 1))
             rot_mat = cv2.getRotationMatrix2D(centre_in_rot_patch, rot_angle, scale)
 
@@ -131,7 +131,7 @@ class Tracker:
         random_samples = self.generate_random_samples(frame, bbox, config.BATCH_SIZE)
         static_features = self._static_features_extractor.extract_features([sample[0] for sample in random_samples])
         self._sample_manager.add_samples(list(zip(
-            [static_features[i] for i in static_features.shape[0]],
+            [static_features[i, ...] for i in range(static_features.shape[0])],
             [sample[1] for sample in random_samples]
         )), init=init)
 
@@ -179,7 +179,7 @@ class Tracker:
 
         self._net = FilterEvolvingNet()
         self._static_features_extractor = StaticFeaturesExtractor(config.STATIC_FEATURES, config.STATIC_FEATURE_SIZE)
-        self._sample_manager = SampleManager()
+        self._sample_manager = SampleManager(config.BATCH_SIZE, config.MAX_NUM_SAMPLES)
         self._criterion = nn.MSELoss()
         self._optimizer = torch.optim.SGD(self._net.parameters(),
                                           config.LEARNING_RATE,

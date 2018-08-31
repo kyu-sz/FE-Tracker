@@ -34,7 +34,7 @@ class SampleManager:
             for i in sorted([i for i in to_del if i >= self._num_init_samples], reverse=True):
                 del self._samples[i]
 
-        self._mixture.fit([s[0] for s in self._samples])
+        self._mixture.fit([s[0].view(-1).numpy() for s in self._samples])
         pred = self._mixture.predict(self._samples)
 
         if not lock_acquired:
