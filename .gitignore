@@ -1,3 +1,6 @@
+# Demo output
+*.avi
+
 # Mac system files
 .DS_Store
 

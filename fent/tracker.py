@@ -1,3 +1,5 @@
+import itertools
+import random
 from typing import Union, Tuple, List
 
 import cv2
@@ -7,7 +9,7 @@ import torch.nn as nn
 
 from fent import config
 from fent.filter_evolving_net import FilterEvolvingNet
-from fent.sample_management import SampleManager
+from fent.sample_management import SampleManager, Sample
 from fent.static_features import StaticFeaturesExtractor
 
 
@@ -18,7 +20,7 @@ def r2i(x) -> int:
 class Tracker:
     @staticmethod
     def _choose_closest_anchor(bbox: Tuple[float, float, float, float]):
-        return np.argmin([np.linalg.norm(anchor - bbox) for anchor in config.ANCHORS])
+        return np.argmin([np.linalg.norm(anchor - bbox[2:]) for anchor in config.ANCHORS])
 
     @staticmethod
     def gaussian_kernel(kernel_shape: tuple, centre: tuple, sigma: float, amplitude: int = 1) -> np.ndarray:
@@ -104,69 +106,78 @@ class Tracker:
                               rotated_right_lower[1],
                               rotated_right_upper[1])
                           ) * scale
-            new_bbox = [
+            new_bbox = (
                 (centre_in_search_patch[0] if not mirror else search_area_size - centre_in_search_patch[0])
                 - new_width / 2,
                 (centre_in_search_patch[1] if not mirror else search_area_size - centre_in_search_patch[1])
                 - new_height / 2,
                 new_width,
                 new_height
-            ]
-            rel_bbox = ((new_bbox[0] + new_bbox[2] / 2) / search_area_size,
-                        (new_bbox[1] + new_bbox[3] / 2) / search_area_size,
-                        new_bbox[2] / search_area_size,
-                        new_bbox[3] / search_area_size)
+            )
 
-            # cv2.imshow("display", draw_bbox(search_area_patch.copy(), new_bbox, (255, 0, 0)))
+            # resize to a fixed sample size
+            fixed_size_sample = cv2.resize(search_area_patch, (config.IMPUT_SAMPLE_SIZE, config.IMPUT_SAMPLE_SIZE))
+            resize_ratio = config.IMPUT_SAMPLE_SIZE / search_area_size
+            new_bbox = (new_bbox[0] * resize_ratio,
+                        new_bbox[1] * resize_ratio,
+                        new_bbox[2] * resize_ratio,
+                        new_bbox[3] * resize_ratio)
+            # canvas = fixed_size_sample.copy()
+            # draw_bbox(canvas, new_bbox, (255, 0, 0))
+            # cv2.imshow("display", canvas)
             # cv2.waitKey()
-
-            samples.append((cv2.resize(search_area_patch, (config.IMPUT_SAMPLE_SIZE, config.IMPUT_SAMPLE_SIZE)),
-                            rel_bbox))
+            samples.append((fixed_size_sample, new_bbox))
 
         return samples
 
-    def _add_samples_from_frame(self, frame: np.ndarray, bbox: Tuple[float, float, float, float], init=False):
+    def _add_samples_from_frame(self, frame: np.ndarray, bbox: Tuple[float, float, float, float], frame_index: int):
         # Create samples by rotating the searching area for initial training.
         # Directly store the static features of them instead of the original image patches into the sample manager.
         random_samples = self.generate_random_samples(frame, bbox, config.BATCH_SIZE)
         static_features = self._static_features_extractor.extract_features([sample[0] for sample in random_samples])
-        self._sample_manager.add_samples(list(zip(
-            [static_features[i, ...] for i in range(static_features.shape[0])],
-            [sample[1] for sample in random_samples]
-        )), init=init)
+        for f, b in zip(
+                [static_features[i, ...] for i in range(static_features.shape[0])],
+                [sample[1] for sample in random_samples]
+        ):
+            self._sample_manager.add_sample(Sample(f, b, frame_index))
 
     def _train(self):
         random_samples = self._sample_manager.pick_samples()
-        mini_batch = torch.cat([sample[0] for sample in random_samples])
-        rel_bbox = [sample[1] for sample in random_samples]
+        mini_batch = torch.stack([sample.features for sample in random_samples])
+        bbox_gt = [sample.bbox for sample in random_samples]
         resp_map, bbox_reg_maps = self._net(mini_batch)
-        resp_map_selected = torch.tensor([
-            resp_map[i, self._choose_closest_anchor(rel_bbox[i]), :] for i in range(len(random_samples))
-        ])
-        resp_map_target = torch.tensor([
-            self.gaussian_kernel(resp_map.shape[2:],
-                                 (sample[1][0] + sample[1][2] / 2,
-                                  sample[1][1] + sample[1][3] / 2),
-                                 sigma=config.GAUSSIAN_LABEL_SIGMA)
-            for sample in random_samples
-        ])
-        bbox_reg_target = torch.tensor([
-            [
-                [
-                    [
-                        [
-                            x - rel_bbox[i, 0],
-                            y - rel_bbox[i, 1],
-                            anchor[0] / rel_bbox[i, 2],
-                            anchor[1] / rel_bbox[i, 3],
-                        ] for x in range(0, 1, 1 / config.OUTPUT_MAPS_SIZE)
-                    ] for y in range(0, 1, 1 / config.OUTPUT_MAPS_SIZE)
-                ] for anchor in config.ANCHORS
-            ] for i in range(config.BATCH_SIZE)
+        resp_map_selected = torch.stack([
+            resp_map[i, self._choose_closest_anchor(bbox_gt[i]), :] for i in range(len(random_samples))
         ])
 
-        cls_loss = self._criterion(resp_map_selected, resp_map_target)
-        bbox_reg_loss = self._criterion(bbox_reg_maps, bbox_reg_target)
+        gt_resp_centres = [
+            ((sample.bbox[0] - 0.5) / 2,
+             (sample.bbox[1] - 0.5) / 2)
+            for sample in random_samples
+        ]
+
+        resp_map_gt = torch.tensor([
+            self.gaussian_kernel(resp_map.shape[2:],
+                                 gt_resp_centre,
+                                 sigma=config.GAUSSIAN_LABEL_SIGMA)
+            for gt_resp_centre in gt_resp_centres
+        ], dtype=torch.float32)
+        half_unit = 0.5 / config.OUTPUT_MAPS_SIZE
+        bbox_reg_maps_gt = torch.stack([
+            torch.tensor([
+                [
+                    list(itertools.chain.from_iterable([gt_resp_centres[i][0] - x,
+                                                        gt_resp_centres[i][1] - y,
+                                                        bbox_gt[i][2] / config.PERCEPTIVE_FIELD_SIZE / anchor[0] - 1,
+                                                        bbox_gt[i][3] / config.PERCEPTIVE_FIELD_SIZE / anchor[1] - 1]
+                                                       for anchor in config.ANCHORS))
+                    for x in np.linspace(half_unit, 1 - half_unit, config.OUTPUT_MAPS_SIZE)
+                ] for y in np.linspace(half_unit, 1 - half_unit, config.OUTPUT_MAPS_SIZE)
+            ], dtype=torch.float32) for i in range(config.BATCH_SIZE)
+        ]).permute([0, 3, 1, 2])
+
+        cls_loss = self._cls_criterion(resp_map_selected, resp_map_gt)
+        bbox_reg_loss = self._bbox_reg_criterion(bbox_reg_maps, bbox_reg_maps_gt)
         loss = cls_loss * config.LOSS_WEIGHTS['cls'] + bbox_reg_loss * config.LOSS_WEIGHTS['bbox_reg']
         self._optimizer.zero_grad()
         loss.backward()
@@ -176,11 +187,13 @@ class Tracker:
                  init_frame: Union[str, np.ndarray],
                  init_bbox: Tuple[float, float, float, float]):
         np.random.seed(0)
+        random.seed(0)
 
         self._net = FilterEvolvingNet()
         self._static_features_extractor = StaticFeaturesExtractor(config.STATIC_FEATURES, config.STATIC_FEATURE_SIZE)
         self._sample_manager = SampleManager(config.BATCH_SIZE, config.MAX_NUM_SAMPLES)
-        self._criterion = nn.MSELoss()
+        self._cls_criterion = nn.MSELoss()
+        self._bbox_reg_criterion = nn.MSELoss()
         self._optimizer = torch.optim.SGD(self._net.parameters(),
                                           config.LEARNING_RATE,
                                           momentum=config.MOMENTOM,
@@ -189,7 +202,9 @@ class Tracker:
         if type(init_frame) is str:
             init_frame = cv2.imread(init_frame)
 
-        self._add_samples_from_frame(init_frame, init_bbox, init=True)
+        self._frame_index = 0
+
+        self._add_samples_from_frame(init_frame, init_bbox, self._frame_index)
         for i in range(config.INIT_TRAIN_ITER):
             self._train()
 
@@ -228,14 +243,15 @@ class Tracker:
             anchor = c
 
         # update the latest bounding box
-        centre = ((y / resp_map.shape[2] + bbox_reg[0, anchor * 4 + 1, y, x]) * sa_size,
-                  (x / resp_map.shape[3] + bbox_reg[0, anchor * 4 + 0, y, x]) * sa_size)
-        w = sa_size * (config.ANCHORS[anchor][0] + bbox_reg[0, anchor * 4 + 2, y, x]) / config.SEARCH_AREA_SIZE_RATIO
-        h = sa_size * (config.ANCHORS[anchor][1] + bbox_reg[0, anchor * 4 + 3, y, x]) / config.SEARCH_AREA_SIZE_RATIO
+        centre = ((y + bbox_reg[0, anchor * 4 + 1, y, x]) * 2 + 0.5,
+                  (x + bbox_reg[0, anchor * 4 + 0, y, x]) * 2 + 0.5)
+        w = config.PERCEPTIVE_FIELD_SIZE * config.ANCHORS[anchor][0] * (1 + bbox_reg[0, anchor * 4 + 2, y, x])
+        h = config.PERCEPTIVE_FIELD_SIZE * config.ANCHORS[anchor][1] * (1 + bbox_reg[0, anchor * 4 + 3, y, x])
         self._last_bbox = (centre[0] - w / 2, centre[1] - h / 2, w, h)
 
         # Add new samples from this frame and fine-tune the network.
-        self._add_samples_from_frame(frame, self._last_bbox)
+        self._frame_index += 1
+        self._add_samples_from_frame(frame, self._last_bbox, self._frame_index)
         for i in range(config.TRAIN_ITER_PER_ROUND):
             self._train()
 

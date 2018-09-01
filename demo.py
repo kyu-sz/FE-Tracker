@@ -3,6 +3,7 @@ import sys
 import cv2
 
 from fent.tracker import Tracker
+from utils import draw_bbox
 from utils.frame_reader import SourceType, FrameReader
 
 
@@ -51,11 +52,18 @@ if __name__ == '__main__':
     bundled_reader = zip(frame_reader, label_reader)
     tracker = None
 
+    video_writer = None
     for frame, gt_bbox in zip(frame_reader, label_reader):
         if tracker is None:
             tracker = Tracker(frame, gt_bbox)
             continue
         bbox = tracker.track(frame)
-        cv2.rectangle(frame, bbox[:1], bbox[2:], (255, 0, 0))
-        cv2.rectangle(frame, gt_bbox[:1], gt_bbox[2:], (0, 255, 0))
-        cv2.imshow(frame)
+        draw_bbox(frame, bbox, (255, 0, 0))
+        draw_bbox(frame, gt_bbox, (0, 255, 0))
+        cv2.imshow("Demo", frame)
+        cv2.waitKey(1)
+        if video_writer is None:
+            video_writer = cv2.VideoWriter('demo.avi', cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'), 100,
+                                           (frame.shape[1], frame.shape[0]))
+        video_writer.write(frame)
+    cv2.destroyAllWindows()

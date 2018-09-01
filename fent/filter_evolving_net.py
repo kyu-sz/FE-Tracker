@@ -8,43 +8,28 @@ from . import config
 class FilterEvolvingNet(nn.Module):
     def __init__(self):
         super(FilterEvolvingNet, self).__init__()
-        self._evolving_features = nn.Sequential(OrderedDict([
-            ('conv3a', nn.Conv2d(256, 256, 3, padding=1)),
-            ('norm3a', nn.BatchNorm2d(5)),
+        self._features = nn.Sequential(OrderedDict([
+            ('conv3a', nn.Conv2d(128, 256, 3, padding=3, dilation=3)),
+            ('norm3a', nn.BatchNorm2d(256)),
             ('relu3a', nn.ReLU(inplace=True)),
             ('conv3b', nn.Conv2d(256, 256, 3, padding=1)),
-            ('norm3b', nn.BatchNorm2d(5)),
+            ('norm3b', nn.BatchNorm2d(256)),
             ('relu3b', nn.ReLU(inplace=True)),
             ('conv3c', nn.Conv2d(256, 256, 3, padding=1)),
-            ('norm3c', nn.BatchNorm2d(5)),
+            ('norm3c', nn.BatchNorm2d(256)),
             ('relu3c', nn.ReLU(inplace=True)),
-            ('pool3', nn.MaxPool2d(kernel_size=2, stride=2)),
-            ('conv4a', nn.Conv2d(256, 512, 3, padding=1)),
-            ('norm4a', nn.BatchNorm2d(5)),
-            ('relu4a', nn.ReLU(inplace=True)),
-            ('conv4b', nn.Conv2d(512, 512, 3, padding=1)),
-            ('norm4b', nn.BatchNorm2d(5)),
-            ('relu4b', nn.ReLU(inplace=True)),
-            ('conv4c', nn.Conv2d(512, 512, 3, padding=1)),
-            ('norm4c', nn.BatchNorm2d(5)),
-            ('relu4c', nn.ReLU(inplace=True)),
-            ('pool4', nn.MaxPool2d(kernel_size=2, stride=2)),
-            ('conv5a', nn.Conv2d(512, 512, 3, padding=1)),
-            ('norm5a', nn.BatchNorm2d(5)),
-            ('relu5a', nn.ReLU(inplace=True)),
-            ('conv5b', nn.Conv2d(512, 512, 3, padding=1)),
-            ('norm5b', nn.BatchNorm2d(5)),
-            ('relu5b', nn.ReLU(inplace=True)),
-            ('conv5c', nn.Conv2d(512, 512, 3, padding=1)),
-            ('norm5c', nn.BatchNorm2d(5)),
-            ('relu5c', nn.ReLU(inplace=True)),
-            ('pool5', nn.MaxPool2d(kernel_size=2, stride=2)),
+            ('fc4', nn.Conv2d(256, 256, 7, padding=3)),
+            ('relu4', nn.ReLU(inplace=True)),
+            ('dropout4', nn.Dropout(inplace=True)),
+            ('fc5', nn.Conv2d(256, 256, 1)),
+            ('relu5', nn.ReLU(inplace=True)),
+            ('dropout5', nn.Dropout(inplace=True)),
         ]))
         self._classifier = nn.Sequential(
-            nn.Conv2d(512, len(config.ANCHORS), 7, padding=3),
+            nn.Conv2d(256, len(config.ANCHORS), 1),
             nn.Sigmoid(),
         )
-        self._bbox_reg = nn.Conv2d(512, 4 * len(config.ANCHORS), 7, padding=3)
+        self._bbox_reg = nn.Conv2d(256, 4 * len(config.ANCHORS), 7, padding=3)
 
     def forward(self, x):
         # TODO: store the response of each filter.

@@ -1,80 +1,63 @@
-import heapq
-import threading
+import random
 from typing import Tuple, List
 
-import numpy as np
-from sklearn.mixture.gaussian_mixture import GaussianMixture
 from torch import tensor
 
 
+class Sample:
+    def __init__(self,
+                 features: tensor,
+                 bbox: Tuple[float, float, float, float],
+                 frame_index: int,
+                 important: bool = False):
+        self.features = features
+        self.bbox = bbox
+        self.frame_index = frame_index
+        self.important = important
+        self.confidence = 0
+
+
 class SampleManager:
-    def __init__(self, batch_size=128, max_sample_num=10000):
-        self._mixture = GaussianMixture(batch_size - 1)
-        self._gmm_update_thread = None
-
+    def __init__(self, batch_size: int = 128, max_sample_num: int = 10000):
+        assert batch_size <= max_sample_num * 4, \
+            'To ensure performance, ' \
+            'the maximum number of samples should be at least 4 times equal or greater to the batch size.'
+        self.batch_size = batch_size
         self._max_sample_num = max_sample_num
-        self._samples = None
-        self._component_sample_idx = None  # sample indices classified to each component
-        self._component_lock = threading.Lock()
-        self._num_init_samples = 0
+        self._usual_samples = []
+        self._important_samples = []
 
-    def _update_gmm_sync(self):
-        lock_acquired = False
-        if len(self._samples) > self._max_sample_num and self._component_sample_idx:
-            to_del = {
-                t[2] for t in
-                heapq.nlargest(
-                    len(self._samples) - self._max_sample_num,
-                    [(self._samples[i][1], i) for i in range(len(self._samples))])
-            }.union(
-                set(self._component_sample_idx[np.argmin(self._component_sample_idx)[0]])
-            )
-            self._component_lock.acquire()
-            lock_acquired = True
-            for i in sorted([i for i in to_del if i >= self._num_init_samples], reverse=True):
-                del self._samples[i]
-
-        self._mixture.fit([s[0].view(-1).numpy() for s in self._samples])
-        pred = self._mixture.predict(self._samples)
-
-        if not lock_acquired:
-            self._component_lock.acquire()
-        self._component_sample_idx = [[]] * self._mixture.n_components
-        for idx, p in enumerate(pred):
-            self._component_sample_idx[p].append(idx)
-
-        self._component_lock.release()
-
-    def update_gmm(self, async=True):
-        if async:
-            if self._gmm_update_thread is None or not self._gmm_update_thread.is_alive():
-                self._gmm_update_thread = threading.Thread(target=self._update_gmm_sync)
-                self._gmm_update_thread.start()
+    def add_sample(self, sample: Sample) -> None:
+        if sample.frame_index == 0 or sample.important:
+            self._important_samples.append(sample)
+            if len(self._important_samples) > self._max_sample_num / 2:
+                self._important_samples = \
+                    sorted(self._important_samples,
+                           key=lambda _init_samples: sample.confidence)[:self._max_sample_num / 2]
         else:
-            self._update_gmm_sync()
+            self._usual_samples.append(sample)
+            max_usual_sample = self._max_sample_num - len(self._important_samples)
+            if len(self._usual_samples) > max_usual_sample:
+                num_windows = max_usual_sample / 2
+                index_window_size = self._usual_samples[-1].from_frame_index / num_windows
+                window_end = index_window_size
+                _new_samples = []
+                samples_in_window = []
+                for i in range(len(self._usual_samples)):
+                    if self._usual_samples[i].from_index > window_end:
+                        _new_samples.append(max(samples_in_window, key=lambda s: s.confidence))
+                        window_end += index_window_size
+                        samples_in_window = []
+                    samples_in_window.append(self._usual_samples[i])
+                _new_samples.append(max(samples_in_window, key=lambda s: s.confidence))
+                self._usual_samples = _new_samples
 
-    def add_samples(self, samples: List[Tuple[tensor, Tuple[float, float, float, float]]], init=False):
-        if init:
-            self._num_init_samples = len(samples)
-            self._samples = [(f, b, 0) for f, b in samples]
-            self.update_gmm(async=False)
+    def pick_samples(self) -> List[Sample]:
+        if len(self._usual_samples) > 0:
+            num_init_samples = max(1, self.batch_size - len(self._usual_samples))
+            num_usual_samples = self.batch_size - num_init_samples
+            return \
+                random.sample(self._important_samples, num_init_samples) + \
+                random.sample(self._usual_samples, num_usual_samples)
         else:
-            for sample in samples:
-                self._samples.append((sample[0], sample[1], 0))
-                self._component_sample_idx[self._mixture.predict(sample[0])].append(len(self._samples) - 1)
-            self.update_gmm()
-
-    def pick_samples(self) -> list:
-        """
-        Randonly pick a sample within each component.
-        :return: a list of samples; each sample is a tuple of features and confidence score.
-        """
-        if self._component_sample_idx is None:
-            self.update_gmm(async=False)
-
-        selected_samples = [self._samples[np.random.randint(0, self._num_init_samples)]]
-        self._component_lock.acquire()
-        for c in self._component_sample_idx:
-            selected_samples.append(self._samples[c[np.random.randint(0, len(c))]])
-        self._component_lock.release()
-        return selected_samples
+            return random.sample(self._important_samples, self.batch_size)
