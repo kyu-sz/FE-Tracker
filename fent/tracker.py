@@ -142,6 +142,8 @@ class Tracker:
             self._sample_manager.add_sample(Sample(f, b, frame_index))
 
     def _train(self):
+        self._net.train(True)
+
         random_samples = self._sample_manager.pick_samples()
         mini_batch = torch.stack([sample.features for sample in random_samples])
         bbox_gt = [sample.bbox for sample in random_samples]
@@ -179,6 +181,7 @@ class Tracker:
         cls_loss = self._cls_criterion(resp_map_selected, resp_map_gt)
         bbox_reg_loss = self._bbox_reg_criterion(bbox_reg_maps, bbox_reg_maps_gt)
         loss = cls_loss * config.LOSS_WEIGHTS['cls'] + bbox_reg_loss * config.LOSS_WEIGHTS['bbox_reg']
+
         self._optimizer.zero_grad()
         loss.backward()
         self._optimizer.step()
@@ -211,10 +214,12 @@ class Tracker:
         self._last_bbox = init_bbox
 
     def track(self, frame: Union[str, np.ndarray]):
+        self._net.train(False)
+
         if type(frame) is str:
             frame = cv2.imread(frame)
 
-        # Calculate search area.
+        # calculate search area
         last_bbox_centre = (self._last_bbox[0] + self._last_bbox[2] / 2, self._last_bbox[1] + self._last_bbox[3] / 2)
         last_bbox_longer_side = max(self._last_bbox[2], self._last_bbox[3])
         frame_shorter_side = min(frame.shape[0], frame.shape[1])
@@ -222,13 +227,15 @@ class Tracker:
         sa_x = min(max(0, r2i(last_bbox_centre[0] - sa_size / 2)), frame.shape[1] - sa_size)
         sa_y = min(max(0, r2i(last_bbox_centre[1] - sa_size / 2)), frame.shape[0] - sa_size)
 
-        # Feed into the network.
+        # feed into the network
         static_features = self._static_features_extractor.extract_features(
             cv2.resize(frame[sa_y:sa_y + sa_size, sa_x:sa_x + sa_size],
                        (config.IMPUT_SAMPLE_SIZE, config.IMPUT_SAMPLE_SIZE)))
-        resp_map, bbox_reg = self._net(torch.stack[static_features])
+        resp_map, bbox_reg = self._net(torch.stack([static_features]))
+        resp_map = resp_map.detach().numpy()
+        bbox_reg = bbox_reg.detach().numpy()
 
-        # Find the greatest response.
+        # find the greatest response
         y = 0
         x = 0
         anchor = 0
@@ -249,11 +256,11 @@ class Tracker:
         h = config.PERCEPTIVE_FIELD_SIZE * config.ANCHORS[anchor][1] * (1 + bbox_reg[0, anchor * 4 + 3, y, x])
         self._last_bbox = (centre[0] - w / 2, centre[1] - h / 2, w, h)
 
-        # Add new samples from this frame and fine-tune the network.
+        # add new samples from this frame and fine-tune the network
         self._frame_index += 1
         self._add_samples_from_frame(frame, self._last_bbox, self._frame_index)
         for i in range(config.TRAIN_ITER_PER_ROUND):
             self._train()
 
-        # Return the last bounding box.
+        # return the last bounding box
         return self._last_bbox

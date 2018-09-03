@@ -20,10 +20,10 @@ class FilterEvolvingNet(nn.Module):
             ('relu3c', nn.ReLU(inplace=True)),
             ('fc4', nn.Conv2d(256, 256, 7, padding=3)),
             ('relu4', nn.ReLU(inplace=True)),
-            ('dropout4', nn.Dropout(inplace=True)),
+            ('dropout4', nn.Dropout()),
             ('fc5', nn.Conv2d(256, 256, 1)),
             ('relu5', nn.ReLU(inplace=True)),
-            ('dropout5', nn.Dropout(inplace=True)),
+            ('dropout5', nn.Dropout()),
         ]))
         self._classifier = nn.Sequential(
             nn.Conv2d(256, len(config.ANCHORS), 1),

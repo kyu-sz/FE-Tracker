@@ -1,6 +1,7 @@
 import sys
 
 import cv2
+from torchvision import models
 
 from fent.tracker import Tracker
 from utils import draw_bbox
@@ -52,18 +53,41 @@ if __name__ == '__main__':
     bundled_reader = zip(frame_reader, label_reader)
     tracker = None
 
-    video_writer = None
+    net = models.vgg16_bn(pretrained=True)
+
+    patch_video_writer = None
+    feature_video_writer = None
     for frame, gt_bbox in zip(frame_reader, label_reader):
         if tracker is None:
             tracker = Tracker(frame, gt_bbox)
             continue
         bbox = tracker.track(frame)
+
         draw_bbox(frame, bbox, (255, 0, 0))
         draw_bbox(frame, gt_bbox, (0, 255, 0))
         cv2.imshow("Demo", frame)
+
+        # if patch_video_writer is None:
+        #     patch_video_writer = cv2.VideoWriter('patch.avi', cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'), 50,
+        #                                          (224, 224))
+        #     feature_video_writer = cv2.VideoWriter('features.avi', cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'), 50,
+        #                                            (224, 224))
+        # offset = int(max(gt_bbox[2], gt_bbox[3]) / 2)
+        # x_mid = int(gt_bbox[0] + gt_bbox[2] / 2)
+        # y_mid = int(gt_bbox[1] + gt_bbox[3] / 2)
+        # patch = cv2.resize(frame[y_mid - offset:y_mid + offset, x_mid - offset: x_mid + offset, :], (224, 224))
+        # patch_video_writer.write(patch)
+        #
+        # features = cv2.resize(
+        #     net.features[:-1](torch.stack([transforms.ToTensor()(patch)]))[0, 0, ...].detach().numpy(), (224, 224)
+        # )
+        # ceil = features.max()
+        # feature_vis = np.zeros((224, 224, 3), 'uint8')
+        # feature_vis[..., 1] = (ceil / 2 - np.fabs(ceil / 2 - features)) * 128
+        # feature_vis[..., 2] = features / ceil * 255
+        # feature_video_writer.write(feature_vis)
+        # cv2.imshow("features", feature_vis)
+
         cv2.waitKey(1)
-        if video_writer is None:
-            video_writer = cv2.VideoWriter('demo.avi', cv2.VideoWriter.fourcc('M', 'J', 'P', 'G'), 100,
-                                           (frame.shape[1], frame.shape[0]))
-        video_writer.write(frame)
+
     cv2.destroyAllWindows()
