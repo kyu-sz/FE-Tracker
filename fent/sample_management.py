@@ -48,7 +48,10 @@ class SampleManager:
                         _new_samples.append(max(samples_in_window, key=lambda s: s.confidence))
                         window_end += index_window_size
                         samples_in_window = []
-                    samples_in_window.append(self._usual_samples[i])
+                    if self._usual_samples[i].confidence > 0:
+                        samples_in_window.append(self._usual_samples[i])
+                    else:
+                        _new_samples.append(self._usual_samples[i])
                 _new_samples.append(max(samples_in_window, key=lambda s: s.confidence))
                 self._usual_samples = _new_samples
 
@@ -56,8 +59,11 @@ class SampleManager:
         if len(self._usual_samples) > 0:
             num_init_samples = max(1, self.batch_size - len(self._usual_samples))
             num_usual_samples = self.batch_size - num_init_samples
+            num_new_samples = int(num_usual_samples / 4)
             return \
                 random.sample(self._important_samples, num_init_samples) + \
-                random.sample(self._usual_samples, num_usual_samples)
+                random.sample(self._usual_samples[:len(self._usual_samples) - num_new_samples],
+                              num_usual_samples - num_new_samples) + \
+                self._usual_samples[len(self._usual_samples) - num_new_samples:]
         else:
             return random.sample(self._important_samples, self.batch_size)
